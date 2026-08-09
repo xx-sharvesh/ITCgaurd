@@ -1,0 +1,89 @@
+ITC GUARD — COMPETITOR RESEARCH SEARCH TERMS
+Compiled 9 August 2026. Use these across Google, LinkedIn, Product Hunt, G2,
+Capterra, and X/Twitter — each surface turns up different players.
+
+====================================================================
+CATEGORY TERMS (the crowded part — expect many results)
+====================================================================
+GST ITC reconciliation software India
+GSTR-2B reconciliation tool
+GSTR-2A vs GSTR-2B reconciliation software
+input tax credit reconciliation SaaS India
+vendor GST compliance software India
+GST vendor risk score
+accounts payable GST compliance software India
+AP automation GST India
+GST compliance software for CA firms
+
+====================================================================
+THE ACTUAL DIFFERENTIATOR — search these specifically
+(this is where you're checking whether anyone has really built the
+pay/hold decision layer, not just reconciliation)
+====================================================================
+"pay or hold" vendor GST software
+GST payment hold non-compliant vendor software
+Section 43B(h) software tool
+Rule 37A ITC reversal software
+MSME 45 day payment tracker software
+vendor compliance score trend GST month over month
+GST vendor scorecard history
+chase vendor GST non-filing automated email
+GST vendor payment release recommendation software
+income tax GST combined risk vendor payment software
+
+====================================================================
+NAMED PRODUCTS FOUND DURING RESEARCH — worth opening directly
+====================================================================
+ClearTax GST reconciliation
+TallyPrime IMS Invoice Management System
+CashFlo AP automation India
+GSTHero
+GSTrobo Binary Semantics
+IRIS Sapphire GST
+Masters India GST software
+SoftGST Trust Fintech
+Refrens Trust Score
+GSTINScore
+Counts.ac GST compliance
+Cygnet Finalyze GRC score
+SmartGST Health Score
+The GST Calculator India MSME Payment Tracker
+Avalara India GST reconciliation
+Zoho Books GST reconciliation
+
+====================================================================
+COMPARISON / REVIEW SEARCHES
+====================================================================
+ClearTax vs GSTHero
+best GST reconciliation software India 2026 comparison
+GST reconciliation software reviews G2
+GST compliance software reviews Capterra
+GST software India Reddit recommendation
+
+====================================================================
+BEYOND GOOGLE — startups and smaller players don't always rank
+====================================================================
+site:producthunt.com GST reconciliation India
+site:ycombinator.com GST India fintech
+site:linkedin.com "GST" "vendor risk" founder India
+"GST reconciliation" startup funding India 2026
+"input tax credit" startup India seed funding
+GST fintech India startup launch 2026
+
+====================================================================
+WHAT TO LOOK FOR IN ANY RESULT (so a new competitor is easy to rule
+in or out fast)
+====================================================================
+1. Do they compare COST OF PAYING vs COST OF HOLDING in rupees,
+   for a specific vendor, with the reasoning shown?
+2. Do they reference Section 43B(h) Income-tax Act AND GST law
+   in the SAME recommendation — not as two separate features?
+3. Do they track a vendor's compliance against THIS BUYER'S OWN
+   invoice history specifically, with a trend across months —
+   not just a generic public GSTIN filing score?
+4. Do they state a zero-false-positive matching guarantee, or do
+   they just say "AI-powered" without specifics?
+
+If a product does NOT do at least #1 and #3, it is a reconciliation
+tool, not a real competitor to the decision layer — note it as
+"category noise," not a direct threat.

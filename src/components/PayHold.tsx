@@ -15,7 +15,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronDown, Scale, Wallet } from "lucide-react";
+import { Banknote, ChevronDown, Scale, Wallet } from "lucide-react";
 import type { PayHoldDecision, ReconciliationRun } from "@/lib/domain/types";
 import { formatINR, formatINRCompact } from "@/lib/domain/money";
 import { formatDate } from "@/lib/domain/normalize";
@@ -51,11 +51,17 @@ const FILTERS: Array<{ key: Verdict | "ALL"; label: string }> = [
 export function PayHoldBoard({
   run,
   onOpenVendor,
+  onGeneratePaymentFile,
 }: {
   run: ReconciliationRun;
   onOpenVendor: (gstin: string) => void;
+  /** Builds and downloads a bulk NEFT/RTGS beneficiary file from every PAY / PAY_NET_OF_GST decision below. */
+  onGeneratePaymentFile?: () => void;
 }) {
   const [filter, setFilter] = useState<Verdict | "ALL">("ALL");
+  const payableCount = run.decisions.filter(
+    (d) => d.verdict === "PAY" || d.verdict === "PAY_NET_OF_GST",
+  ).length;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { ALL: run.decisions.length };
@@ -79,23 +85,42 @@ export function PayHoldBoard({
     <div className="space-y-6">
       <Card>
         <div className="border-b border-[var(--color-line)] px-6 py-5">
-          <div className="flex items-center gap-2.5">
-            <Scale size={15} strokeWidth={2} className="text-[var(--color-gold)]" aria-hidden />
-            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-gold)]">
-              The payment release decision
-            </span>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <Scale size={15} strokeWidth={2} className="text-[var(--color-gold)]" aria-hidden />
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-gold)]">
+                  The payment release decision
+                </span>
+              </div>
+              <h1 className="mt-3 max-w-3xl text-[24px] font-semibold leading-tight tracking-tight text-[var(--color-ink)]">
+                Three provisions in two Acts pull this decision in opposite directions. Here is what each
+                branch costs.
+              </h1>
+              <p className="mt-3 max-w-3xl text-[13.5px] leading-relaxed text-[var(--color-ink-soft)]">
+                Paying a supplier who never files loses the credit under Sec 16(2)(aa). Holding a
+                registered micro or small enterprise past its limit defers the deduction under Sec 43B(h)
+                of the Income-tax Act. Holding anyone past 180 days reverses the credit with interest
+                under Rule 37. Every recommendation below prices all three and names the constraint that
+                decided it.
+              </p>
+            </div>
+            {onGeneratePaymentFile && (
+              <Button
+                variant="primary"
+                icon={Banknote}
+                onClick={onGeneratePaymentFile}
+                disabled={payableCount === 0}
+                title={
+                  payableCount === 0
+                    ? "No supplier is currently clear to pay"
+                    : `Builds a bulk NEFT/RTGS beneficiary file for ${payableCount} approved release${payableCount === 1 ? "" : "s"}`
+                }
+              >
+                Generate payment file
+              </Button>
+            )}
           </div>
-          <h1 className="mt-3 max-w-3xl text-[24px] font-semibold leading-tight tracking-tight text-[var(--color-ink)]">
-            Three provisions in two Acts pull this decision in opposite directions. Here is what each
-            branch costs.
-          </h1>
-          <p className="mt-3 max-w-3xl text-[13.5px] leading-relaxed text-[var(--color-ink-soft)]">
-            Paying a supplier who never files loses the credit under Sec 16(2)(aa). Holding a
-            registered micro or small enterprise past its limit defers the deduction under Sec 43B(h)
-            of the Income-tax Act. Holding anyone past 180 days reverses the credit with interest
-            under Rule 37. Every recommendation below prices all three and names the constraint that
-            decided it.
-          </p>
         </div>
 
         <div className="grid grid-cols-1 divide-y divide-[var(--color-line)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">

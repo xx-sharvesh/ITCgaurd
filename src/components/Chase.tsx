@@ -16,11 +16,16 @@
  */
 
 import { useMemo, useState } from "react";
-import { Check, Copy, MessageSquare, Send } from "lucide-react";
+import { Check, CheckCircle2, Copy, MessageSquare, Send } from "lucide-react";
 import type { ReconciliationRun, RiskFinding } from "@/lib/domain/types";
 import { formatINR, formatINRCompact } from "@/lib/domain/money";
 import { formatDate, formatPeriod } from "@/lib/domain/normalize";
 import { Badge, Button, Card, EmptyState, Money, cx } from "./primitives";
+
+/** Same key shape page.tsx persists in `resolved` — one entry per vendor per period. */
+function resolvedKey(gstin: string, period: string): string {
+  return `${gstin}:${period}`;
+}
 
 /** Rules where the fix is genuinely in the supplier's hands. */
 const CHASEABLE = new Set<RiskFinding["rule"]>([
@@ -45,10 +50,15 @@ export function ChaseComposer({
   run,
   companyName,
   companyGstin,
+  resolved = [],
+  onToggleResolved,
 }: {
   run: ReconciliationRun;
   companyName: string;
   companyGstin: string;
+  /** "gstin:period" keys already marked sent. */
+  resolved?: string[];
+  onToggleResolved?: (key: string) => void;
 }) {
   const targets = useMemo<ChaseTarget[]>(() => {
     const map = new Map<string, ChaseTarget>();
@@ -78,6 +88,7 @@ export function ChaseComposer({
   const [copied, setCopied] = useState(false);
 
   const target = targets.find((t) => t.gstin === selected) ?? targets[0] ?? null;
+  const targetSent = target ? resolved.includes(resolvedKey(target.gstin, run.period)) : false;
 
   const message = useMemo(
     () =>
@@ -155,32 +166,41 @@ export function ChaseComposer({
             Queue, largest first
           </div>
           <ul className="scroll-slim max-h-[560px] overflow-y-auto">
-            {targets.map((t) => (
-              <li key={t.gstin}>
-                <button
-                  type="button"
-                  onClick={() => setSelected(t.gstin)}
-                  className={cx(
-                    "flex w-full cursor-pointer items-start justify-between gap-3 border-b border-[var(--color-line-hair)] px-4 py-3 text-left transition-colors duration-150",
-                    target?.gstin === t.gstin
-                      ? "bg-[var(--color-gold-soft)]"
-                      : "hover:bg-[var(--color-surface-sunken)]",
-                  )}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] font-medium text-[var(--color-ink)]">
-                      {t.name}
+            {targets.map((t) => {
+              const sent = resolved.includes(resolvedKey(t.gstin, run.period));
+              return (
+                <li key={t.gstin}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(t.gstin)}
+                    className={cx(
+                      "flex w-full cursor-pointer items-start justify-between gap-3 border-b border-[var(--color-line-hair)] px-4 py-3 text-left transition-colors duration-150",
+                      target?.gstin === t.gstin
+                        ? "bg-[var(--color-gold-soft)]"
+                        : "hover:bg-[var(--color-surface-sunken)]",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-medium text-[var(--color-ink)]">
+                        {t.name}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--color-ink-muted)]">
+                        {sent && (
+                          <CheckCircle2 size={11} strokeWidth={2.5} className="shrink-0 text-[var(--color-good)]" aria-hidden />
+                        )}
+                        <span>
+                          {t.findings.length} document{t.findings.length === 1 ? "" : "s"}
+                          {sent && " · sent"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-0.5 text-[11px] text-[var(--color-ink-muted)]">
-                      {t.findings.length} document{t.findings.length === 1 ? "" : "s"}
-                    </div>
-                  </div>
-                  <Money size="sm" tone="danger">
-                    {formatINRCompact(t.amount)}
-                  </Money>
-                </button>
-              </li>
-            ))}
+                    <Money size="sm" tone="danger">
+                      {formatINRCompact(t.amount)}
+                    </Money>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </Card>
 
@@ -196,6 +216,17 @@ export function ChaseComposer({
               <div className="flex items-center gap-2">
                 {target.deadline && (
                   <Badge tone="warn">Deadline {formatDate(target.deadline)}</Badge>
+                )}
+                {onToggleResolved && (
+                  <Button
+                    size="sm"
+                    icon={targetSent ? CheckCircle2 : undefined}
+                    variant={targetSent ? "secondary" : "ghost"}
+                    onClick={() => onToggleResolved(resolvedKey(target.gstin, run.period))}
+                    title={targetSent ? "Mark as not yet sent" : "Mark this message as sent"}
+                  >
+                    {targetSent ? "Sent" : "Mark as sent"}
+                  </Button>
                 )}
                 <Button size="sm" icon={copied ? Check : Copy} onClick={copy} variant="primary">
                   {copied ? "Copied" : "Copy message"}

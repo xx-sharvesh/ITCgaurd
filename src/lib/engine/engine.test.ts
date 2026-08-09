@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { generateDataset, defectCensus } from "../fixtures/generate";
 import { GOLDEN_PAIRS } from "../fixtures/golden";
 import { totalTax } from "../domain/money";
-import type { VendorPeriodSnapshot } from "../domain/types";
+import type { GSTR2BRecord, PurchaseRecord, VendorPeriodSnapshot } from "../domain/types";
 import { IDENTITY_THRESHOLD, invoiceSimilarity, reconcile } from "./match";
+import { evaluateRules } from "./rules";
 import { runReconciliation, snapshotVendors } from "./run";
 
 const dataset = generateDataset({ seed: 20260809, lines: 600 });
@@ -492,6 +493,107 @@ describe("vendor history", () => {
     // Only the unbroken tail (May, Jun, plus this run) counts — March is cut
     // off by April's clean month sitting between it and now.
     expect(withGap.vendors.find((x) => x.gstin === risky!.gstin)!.consecutiveFlaggedPeriods).toBe(3);
+  });
+});
+
+describe("cross-border and reverse-charge purchases", () => {
+  // A foreign vendor has no GSTIN — there is no Indian registration to check —
+  // and import-of-services under reverse charge (foreign SaaS, imported
+  // consulting) never appears in GSTR-2B at all, because there is no foreign
+  // "supplier" filing an Indian return. These tests exist because both facts
+  // were, until this session, silently mishandled: a blank GSTIN was treated
+  // as a transcription error, and an unmatched RCM import was treated as a
+  // non-filing supplier. Neither is true.
+  function purchase(overrides: Partial<PurchaseRecord>): PurchaseRecord {
+    return {
+      id: "p1",
+      supplierGstin: "",
+      supplierName: "Foreign Cloud Services Inc",
+      invoiceNumber: "FCS-INV-9001",
+      invoiceDate: "2026-07-05",
+      documentType: "INVOICE",
+      taxableValue: 5_00_000,
+      tax: { igst: 90_000, cgst: 0, sgst: 0, cess: 0 },
+      invoiceValue: 5_90_000,
+      reverseCharge: true,
+      ...overrides,
+    };
+  }
+
+  function gstr2bImport(overrides: Partial<GSTR2BRecord>): GSTR2BRecord {
+    return {
+      id: "g1",
+      supplierGstin: "",
+      supplierName: "Foreign Cloud Services Inc",
+      invoiceNumber: "FCS-INV-9001",
+      invoiceDate: "2026-07-05",
+      documentType: "INVOICE",
+      supplyType: "IMPS",
+      taxableValue: 5_00_000,
+      tax: { igst: 90_000, cgst: 0, sgst: 0, cess: 0 },
+      invoiceValue: 5_90_000,
+      reverseCharge: true,
+      period: "072026",
+      itcAvailable: "Y",
+      ...overrides,
+    };
+  }
+
+  it("finds a GSTIN-less reverse-charge import as a candidate via name, invoice number and amount", () => {
+    const matches = reconcile([purchase({})], [gstr2bImport({})]);
+    const m = matches.find((x) => x.purchase?.id === "p1");
+    expect(m, "the pair should be found at all, not silently dropped for lacking a GSTIN").toBeDefined();
+    expect(m!.gstr2b?.id).toBe("g1");
+    // FUZZY, not auto-accepted, and correctly so: name-only supplier identity
+    // with no GSTIN or PAN anchor is exactly the weak-evidence case this
+    // engine is built to hand to a human rather than accept silently.
+    expect(m!.tier).toBe("FUZZY");
+  });
+
+  it("never cites Sec 16(2)(aa) supplier non-filing for an unmatched reverse-charge import", () => {
+    const matches = reconcile([purchase({ id: "p2", invoiceNumber: "FCS-INV-9002" })], []);
+    const findings = evaluateRules(matches, { asOf: "2026-08-01" });
+    expect(findings.some((f) => f.rule === "SEC_16_2_AA_NOT_IN_2B")).toBe(false);
+  });
+
+  it("never flags a GSTIN-less reverse-charge import as an invalid or mistyped GSTIN", () => {
+    const matches = reconcile([purchase({ id: "p3", invoiceNumber: "FCS-INV-9003" })], []);
+    const findings = evaluateRules(matches, { asOf: "2026-08-01" });
+    expect(findings.some((f) => f.rule === "INVALID_OR_CANCELLED_GSTIN")).toBe(false);
+  });
+
+  it("still flags a genuinely malformed GSTIN on an ordinary domestic purchase — the fix targets blank, not any-invalid", () => {
+    const matches = reconcile(
+      [
+        purchase({
+          id: "p4",
+          invoiceNumber: "DOM-INV-4001",
+          supplierGstin: "27AABCV7182N1Z", // 14 characters: structurally short, not simply absent
+          supplierName: "Domestic Steel Traders",
+          reverseCharge: false,
+        }),
+      ],
+      [],
+    );
+    const findings = evaluateRules(matches, { asOf: "2026-08-01" });
+    expect(findings.some((f) => f.rule === "INVALID_OR_CANCELLED_GSTIN")).toBe(true);
+  });
+
+  it("still flags ordinary forward-charge non-filing — the reverse-charge exclusion is scoped, not a blanket suppression", () => {
+    const matches = reconcile(
+      [
+        purchase({
+          id: "p5",
+          invoiceNumber: "DOM-INV-5001",
+          supplierGstin: "27AABCV7182N1ZO",
+          supplierName: "Domestic Steel Traders",
+          reverseCharge: false,
+        }),
+      ],
+      [],
+    );
+    const findings = evaluateRules(matches, { asOf: "2026-08-01" });
+    expect(findings.some((f) => f.rule === "SEC_16_2_AA_NOT_IN_2B")).toBe(true);
   });
 });
 

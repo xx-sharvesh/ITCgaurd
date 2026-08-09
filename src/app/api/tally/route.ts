@@ -16,9 +16,34 @@ import { NextResponse } from "next/server";
 import { TallyError, TALLY_ERROR_STATUS, isTallyError } from "@/lib/tally/errors";
 import { DEFAULT_TALLY_URL } from "@/lib/tally/requests";
 import { fetchCompanies, fetchPurchaseRegister, probeTally } from "@/lib/tally/client";
+import { TALLY_RULE, checkRateLimit, clientKey } from "@/lib/auth/rate-limit";
 
 /** Talks to a machine-local service; there is nothing here worth caching. */
 export const dynamic = "force-dynamic";
+
+/**
+ * Reject a cross-origin POST outright.
+ *
+ * Authentication alone is not enough here: a logged-in user visiting a hostile
+ * page could have their browser fire this endpoint, and the SSRF allowlist
+ * would still happily scan their internal network on the attacker's behalf.
+ * `sameSite: lax` on the session cookie already blocks the credential from
+ * riding along, and this is the explicit second layer.
+ */
+function crossOriginRejected(request: Request): NextResponse | null {
+  const origin = request.headers.get("origin");
+  if (!origin) return null; // Same-origin fetches and server-side calls omit it.
+
+  const host = request.headers.get("host");
+  try {
+    if (host && new URL(origin).host !== host) {
+      return NextResponse.json({ ok: false, error: { kind: "BAD_REQUEST", message: "Cross-origin request refused.", hint: "" } }, { status: 403 });
+    }
+  } catch {
+    return NextResponse.json({ ok: false, error: { kind: "BAD_REQUEST", message: "Malformed origin.", hint: "" } }, { status: 400 });
+  }
+  return null;
+}
 
 interface RequestBody {
   action?: unknown;
@@ -31,6 +56,24 @@ interface RequestBody {
 const ACTIONS = new Set(["probe", "companies", "purchases"]);
 
 export async function POST(request: Request) {
+  const rejected = crossOriginRejected(request);
+  if (rejected) return rejected;
+
+  const limit = checkRateLimit(clientKey(request, "tally"), TALLY_RULE);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          kind: "RATE_LIMITED",
+          message: "Too many Tally requests.",
+          hint: `Wait ${limit.retryAfterSeconds} second(s) and try again.`,
+        },
+      },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+    );
+  }
+
   let body: RequestBody;
   try {
     body = (await request.json()) as RequestBody;
@@ -77,6 +120,7 @@ export async function POST(request: Request) {
           warnings: result.warnings,
           repairs: result.repairs,
           gstinsFilledFromLedgers: result.gstinsFilledFromLedgers,
+          bankDirectory: result.bankDirectory,
         });
       }
 

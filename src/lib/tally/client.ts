@@ -24,8 +24,10 @@ import {
   listCompaniesRequest,
   purchaseRegisterRequest,
 } from "./requests";
+import type { BankDetails } from "../domain/types";
 import {
   applyLedgerGstins,
+  ledgerBankDirectory,
   parseCompanies,
   parseLedgers,
   parsePurchaseVouchers,
@@ -231,6 +233,12 @@ export interface FetchRegisterResult extends TallyParseResult {
   toDate: string;
   /** How many GSTINs were recovered from the ledger masters. */
   gstinsFilledFromLedgers: number;
+  /**
+   * Beneficiary bank details found on the ledger masters, by GSTIN — the
+   * input to the bulk payment file. Empty when the ledger pull was skipped,
+   * failed, or the company simply hasn't recorded bank details in Tally.
+   */
+  bankDirectory: Record<string, BankDetails>;
 }
 
 export async function fetchPurchaseRegister(
@@ -260,17 +268,24 @@ export async function fetchPurchaseRegister(
 
   let records = parsed.records;
   let gstinsFilledFromLedgers = 0;
+  let bankDirectory: Record<string, BankDetails> = {};
 
-  if (options.enrichWithLedgers !== false && records.some((r) => !r.supplierGstin)) {
+  // Always worth pulling once: besides filling any missing GSTINs, this is
+  // now also the only source of beneficiary bank details for the payment
+  // file, so we no longer skip it just because every voucher already has a
+  // GSTIN.
+  if (options.enrichWithLedgers !== false) {
     try {
       const ledgerXml = await post(url, ledgerMastersRequest({ company: options.company }));
-      const applied = applyLedgerGstins(records, parseLedgers(ledgerXml));
+      const ledgers = parseLedgers(ledgerXml);
+      const applied = applyLedgerGstins(records, ledgers);
       records = applied.records;
       gstinsFilledFromLedgers = applied.filled;
+      bankDirectory = ledgerBankDirectory(ledgers);
     } catch {
       // Enrichment is a bonus, not a requirement. If the ledger export fails
       // we still return the vouchers — the affected lines simply stay
-      // unmatched, and their warnings already say so.
+      // unmatched, and the payment file will ask for bank details manually.
     }
   }
 
@@ -281,5 +296,6 @@ export async function fetchPurchaseRegister(
     fromDate: options.fromDate,
     toDate: options.toDate,
     gstinsFilledFromLedgers,
+    bankDirectory,
   };
 }

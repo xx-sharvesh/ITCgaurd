@@ -22,7 +22,7 @@
  * exists to solve.
  */
 
-import type { DocumentType, PurchaseRecord, TaxAmounts } from "../domain/types";
+import type { BankDetails, DocumentType, PurchaseRecord, TaxAmounts } from "../domain/types";
 import { parsePaise } from "../domain/money";
 import { normalizeGstin } from "../domain/gstin";
 import {
@@ -327,14 +327,27 @@ export interface TallyLedger {
   gstin?: string;
   /** Tally's own party classification, used to skip non-supplier ledgers. */
   parent?: string;
+  /**
+   * Beneficiary bank details, when the ledger master carries them.
+   *
+   * Tally stores these under a nested `BANKDETAILS.LIST` in most versions we
+   * could find documented, with a flat fallback on some older exports. Never
+   * verified against a live TallyPrime instance — see the caveat on
+   * `ledgerBankDirectory` below. Treat a hit here as "worth trying", not
+   * "guaranteed correct", until confirmed against a real company file.
+   */
+  bankAccountNumber?: string;
+  bankIfsc?: string;
+  bankAccountHolder?: string;
 }
 
 /**
- * Harvest supplier GSTINs from the ledger masters.
+ * Harvest supplier GSTINs (and, where present, bank details) from the ledger
+ * masters.
  *
- * Worth pulling separately because many companies record the GSTIN once on the
- * ledger and never on the voucher. Merging the two gives a far higher match
- * rate than vouchers alone.
+ * Worth pulling separately because many companies record the GSTIN once on
+ * the ledger and never on the voucher. Merging the two gives a far higher
+ * match rate than vouchers alone.
  */
 export function parseLedgers(rawXml: string): TallyLedger[] {
   const doc = parseXmlDocument(rawXml);
@@ -348,13 +361,68 @@ export function parseLedgers(rawXml: string): TallyLedger[] {
       childText(node, "PARTYGSTIN") || childText(node, "GSTREGISTRATIONNUMBER"),
     );
 
+    // A ledger can carry several bank entries (old account, new account); we
+    // only need one to route a payment, so the first entry with both an
+    // account number and an IFSC wins.
+    const bankNodes = findAll(node, "BANKDETAILS.LIST");
+    let bankAccountNumber: string | undefined;
+    let bankIfsc: string | undefined;
+    let bankAccountHolder: string | undefined;
+
+    for (const b of bankNodes) {
+      const acc = collapse(childText(b, "BANKACCNO", "ACCOUNTNUMBER"));
+      const ifsc = collapse(childText(b, "IFSCODE", "IFSC", "IFSCCODE"));
+      if (acc && ifsc) {
+        bankAccountNumber = acc;
+        bankIfsc = ifsc.toUpperCase();
+        bankAccountHolder = collapse(childText(b, "BANKACCHOLDERNAME", "ACCOUNTHOLDERNAME")) || undefined;
+        break;
+      }
+    }
+
+    // Fall back to flat fields directly on the ledger, seen in some exports.
+    if (!bankAccountNumber || !bankIfsc) {
+      const acc = collapse(childText(node, "BANKACCNO"));
+      const ifsc = collapse(childText(node, "IFSCODE", "IFSC"));
+      if (acc && ifsc) {
+        bankAccountNumber = acc;
+        bankIfsc = ifsc.toUpperCase();
+      }
+    }
+
     out.push({
       name,
       gstin: gstin || undefined,
       parent: collapse(childText(node, "PARENT")) || undefined,
+      bankAccountNumber,
+      bankIfsc,
+      bankAccountHolder,
     });
   }
 
+  return out;
+}
+
+/**
+ * Build a GSTIN -> bank details lookup from the ledger masters, for the
+ * bulk payment file (see `lib/export/payment-file.ts`).
+ *
+ * IMPORTANT CAVEAT: the tag names this reads (`BANKDETAILS.LIST`,
+ * `BANKACCNO`, `IFSCODE`) are the ones documented for TallyPrime's ledger
+ * export, but this has never been run against a live Tally instance. Treat
+ * anything it returns as a time-saving draft to verify, not a value to wire
+ * straight into a bank transfer unchecked.
+ */
+export function ledgerBankDirectory(ledgers: TallyLedger[]): Record<string, BankDetails> {
+  const out: Record<string, BankDetails> = {};
+  for (const l of ledgers) {
+    if (!l.gstin || !l.bankAccountNumber || !l.bankIfsc) continue;
+    out[l.gstin] = {
+      accountNumber: l.bankAccountNumber,
+      ifsc: l.bankIfsc,
+      accountHolder: l.bankAccountHolder,
+    };
+  }
   return out;
 }
 

@@ -10,13 +10,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Database, FileWarning, Gauge, ListChecks, Scale, Send, Users } from "lucide-react";
-import type { GSTR2BRecord, PurchaseRecord } from "@/lib/domain/types";
+import { Database, FileWarning, Gauge, ListChecks, Plug, Scale, Send, Users } from "lucide-react";
+import type { BankDetails, GSTR2BRecord, PurchaseRecord } from "@/lib/domain/types";
 import { runReconciliation, snapshotVendors } from "@/lib/engine/run";
 import { formatINRCompact } from "@/lib/domain/money";
 import { formatPeriod } from "@/lib/domain/normalize";
 import type { CompanyProfile } from "@/lib/store/session";
 import { loadVendorHistoryExcluding, recordVendorPeriod } from "@/lib/store/vendor-history";
+import { downloadCsv } from "@/lib/export/csv";
 import { Cockpit } from "./Cockpit";
 import { PayHoldBoard } from "./PayHold";
 import { VendorLedger } from "./Vendors";
@@ -33,15 +34,48 @@ export interface DashboardData {
   period: string;
   company: CompanyProfile;
   sources: { register?: string; portal?: string };
+  /** Beneficiary bank details recovered from a Tally ledger pull, by GSTIN. */
+  bankDirectory?: Record<string, BankDetails>;
 }
 
-const NAV: Array<{ key: View; label: string; icon: typeof Gauge; hint: string }> = [
-  { key: "cockpit", label: "Cockpit", icon: Gauge, hint: "What is at risk and what to do" },
-  { key: "payhold", label: "Pay or hold", icon: Scale, hint: "The release decision, priced" },
-  { key: "chase", label: "Chase", icon: Send, hint: "Pre-written supplier follow-ups" },
-  { key: "vendors", label: "Suppliers", icon: Users, hint: "Risk scorecard by counterparty" },
-  { key: "matches", label: "Working papers", icon: ListChecks, hint: "Line-by-line drilldown" },
+interface NavItem {
+  key: View;
+  label: string;
+  icon: typeof Gauge;
+  hint: string;
+}
+
+/**
+ * Grouped by job, not by feature name.
+ *
+ * Five flat tabs named after what each screen does (Cockpit, Chase, Working
+ * papers…) reads as a feature list. The same five screens grouped by who
+ * reaches for them and when — a glance for the executive, this week's work
+ * for AP, the proof for compliance and the CA — reads as a system with a
+ * shape. No new screens here, purely a regroup of the existing five.
+ */
+const NAV_ZONES: Array<{ zone: string; items: NavItem[] }> = [
+  {
+    zone: "Overview",
+    items: [{ key: "cockpit", label: "Cockpit", icon: Gauge, hint: "What is at risk and what to do" }],
+  },
+  {
+    zone: "Act",
+    items: [
+      { key: "payhold", label: "Pay or hold", icon: Scale, hint: "The release decision, priced" },
+      { key: "chase", label: "Chase", icon: Send, hint: "Pre-written supplier follow-ups" },
+    ],
+  },
+  {
+    zone: "Audit",
+    items: [
+      { key: "vendors", label: "Suppliers", icon: Users, hint: "Risk scorecard by counterparty" },
+      { key: "matches", label: "Working papers", icon: ListChecks, hint: "Line-by-line drilldown" },
+    ],
+  },
 ];
+
+const NAV: NavItem[] = NAV_ZONES.flatMap((z) => z.items);
 
 export function Dashboard({
   data,
@@ -50,12 +84,17 @@ export function Dashboard({
   onClearHistory,
   demoBanner,
   historyEnabled = false,
+  resolved = [],
+  onToggleResolved,
 }: {
   data: DashboardData;
   saveWarning?: string | null;
   onReset?: () => void;
   onClearHistory?: () => void;
   demoBanner?: React.ReactNode;
+  /** Chase messages marked sent, as "gstin:period" keys. */
+  resolved?: string[];
+  onToggleResolved?: (key: string) => void;
   /**
    * Read and write cross-period vendor history for this run. Defaults to
    * false so a server-rendered page — the public `/demo` above all — never
@@ -135,6 +174,18 @@ export function Dashboard({
     })();
   }, [run, data.company, data.period]);
 
+  /**
+   * Where a recommendation turns into an action: a beneficiary file ready for
+   * a bank's bulk NEFT/RTGS upload, built only from what Pay/Hold actually
+   * approved for release this run.
+   */
+  const handleGeneratePaymentFile = useCallback(() => {
+    void import("@/lib/export/payment-file").then(({ buildPaymentFile, paymentFileCsv, paymentFileFilename }) => {
+      const summary = buildPaymentFile(run.decisions, run.matches, data.bankDirectory ?? {}, data.period);
+      downloadCsv(paymentFileFilename(data.period), paymentFileCsv(summary));
+    });
+  }, [run, data.bankDirectory, data.period]);
+
   return (
     <div className="flex min-h-dvh">
       <aside className="no-print sticky top-0 hidden h-dvh w-[248px] shrink-0 flex-col border-r border-[var(--color-line)] bg-[var(--color-surface)] lg:flex">
@@ -165,39 +216,46 @@ export function Dashboard({
         </div>
 
         <nav className="flex-1 px-3 py-3">
-          <ul className="space-y-0.5">
-            {NAV.map((item) => {
-              const active = view === item.key;
-              return (
-                <li key={item.key}>
-                  <button
-                    type="button"
-                    onClick={() => setView(item.key)}
-                    aria-current={active ? "page" : undefined}
-                    className={cx(
-                      "flex w-full cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-150",
-                      active
-                        ? "bg-[var(--color-navy)] text-white"
-                        : "text-[var(--color-ink-soft)] hover:bg-[var(--color-surface-sunken)]",
-                    )}
-                  >
-                    <item.icon size={15} strokeWidth={2} aria-hidden className="mt-0.5 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-[13px] font-medium">{item.label}</span>
-                      <span
+          {NAV_ZONES.map((z, zi) => (
+            <div key={z.zone} className={zi > 0 ? "mt-4" : undefined}>
+              <div className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--color-ink-faint)]">
+                {z.zone}
+              </div>
+              <ul className="space-y-0.5">
+                {z.items.map((item) => {
+                  const active = view === item.key;
+                  return (
+                    <li key={item.key}>
+                      <button
+                        type="button"
+                        onClick={() => setView(item.key)}
+                        aria-current={active ? "page" : undefined}
                         className={cx(
-                          "block text-[11px] leading-snug",
-                          active ? "text-white/70" : "text-[var(--color-ink-muted)]",
+                          "flex w-full cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-150",
+                          active
+                            ? "bg-[var(--color-navy)] text-white"
+                            : "text-[var(--color-ink-soft)] hover:bg-[var(--color-surface-sunken)]",
                         )}
                       >
-                        {item.hint}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                        <item.icon size={15} strokeWidth={2} aria-hidden className="mt-0.5 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-medium">{item.label}</span>
+                          <span
+                            className={cx(
+                              "block text-[11px] leading-snug",
+                              active ? "text-white/70" : "text-[var(--color-ink-muted)]",
+                            )}
+                          >
+                            {item.hint}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
 
         <div className="border-t border-[var(--color-line)] px-5 py-4">
@@ -228,6 +286,19 @@ export function Dashboard({
                 Clear vendor history
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                void fetch("/api/auth/logout", { method: "POST" }).then(() => {
+                  // Full navigation rather than a client-side route change, so
+                  // every in-memory copy of the ledger is dropped with the page.
+                  window.location.href = "/login";
+                });
+              }}
+              className="cursor-pointer text-[11.5px] font-medium text-[var(--color-ink-muted)] underline-offset-2 hover:text-[var(--color-ink)] hover:underline"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </aside>
@@ -274,12 +345,16 @@ export function Dashboard({
           {view === "cockpit" && (
             <Cockpit run={run} asOf={data.asOf} onOpenVendor={openVendor} onExport={handleExport} />
           )}
-          {view === "payhold" && <PayHoldBoard run={run} onOpenVendor={openVendor} />}
+          {view === "payhold" && (
+            <PayHoldBoard run={run} onOpenVendor={openVendor} onGeneratePaymentFile={handleGeneratePaymentFile} />
+          )}
           {view === "chase" && (
             <ChaseComposer
               run={run}
               companyName={data.company.name}
               companyGstin={data.company.gstin}
+              resolved={resolved}
+              onToggleResolved={onToggleResolved}
             />
           )}
           {view === "vendors" && (

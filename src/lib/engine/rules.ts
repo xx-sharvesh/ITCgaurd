@@ -105,7 +105,17 @@ function rulesForMatch(m: MatchResult, ctx: RuleContext, cfg: StatutoryConfig): 
   const base = { supplierGstin, supplierName, matchIds: [m.id] };
 
   // -- Sec 16(2)(aa): claimed in books, absent from the portal ---------------
-  if (m.tier === "BOOKS_ONLY" && p) {
+  // Excludes reverse charge on purpose. This rule's whole premise is that
+  // credit depends on the SUPPLIER having filed the invoice — but under
+  // reverse charge (imported services, and the notified domestic RCM
+  // categories) there is no such filing to wait for: the recipient
+  // self-assesses and pays the tax directly. An RCM line will almost always
+  // be BOOKS_ONLY by construction, and flagging every one as "the supplier
+  // hasn't reported this" would be citing the wrong provision for the wrong
+  // reason. NOTE: this means RCM self-assessment risk (did we actually pay
+  // the tax we self-assessed, on time, in our own GSTR-3B) is not currently
+  // priced by this engine at all — it is a gap, not a solved case.
+  if (m.tier === "BOOKS_ONLY" && p && !p.reverseCharge) {
     const amount = totalTax(p.tax);
     out.push({
       ...base,
@@ -331,7 +341,14 @@ function rulesForMatch(m: MatchResult, ctx: RuleContext, cfg: StatutoryConfig): 
   }
 
   // -- Structurally invalid supplier GSTIN -----------------------------------
-  if (p && m.tier === "BOOKS_ONLY") {
+  // A blank GSTIN is excluded on purpose: a foreign vendor genuinely has none
+  // — there is no Indian GST registration to check — and importing goods or
+  // reverse-charge services is common enough in this segment (foreign SaaS,
+  // imported raw material) that flagging every one as "correct the master
+  // before chasing the supplier" would be actively wrong advice, not merely
+  // noisy. A GSTIN that is PRESENT but malformed is a different signal
+  // entirely — almost always a genuine transcription error — and still fires.
+  if (p && m.tier === "BOOKS_ONLY" && p.supplierGstin) {
     const v = validateGstin(p.supplierGstin);
     if (!v.valid) {
       out.push({

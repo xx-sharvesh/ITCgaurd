@@ -110,6 +110,21 @@ export interface GSTR2BRecord {
 
 export type MsmeStatus = "MICRO" | "SMALL" | "MEDIUM" | "NOT_MSME" | "UNKNOWN";
 
+/**
+ * A vendor's beneficiary bank details, for routing an actual payment.
+ *
+ * Lives in the domain layer rather than under `lib/tally` because two
+ * unrelated things need it — the Tally connector (which can harvest it from
+ * a ledger master) and the payment-file export (which needs it regardless of
+ * where it came from) — and neither should depend on the other just to share
+ * a three-field shape.
+ */
+export interface BankDetails {
+  accountNumber: string;
+  ifsc: string;
+  accountHolder?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Matching
 // ---------------------------------------------------------------------------

@@ -22,14 +22,16 @@ import {
   FileSpreadsheet,
   Loader2,
   Lock,
+  Plug,
   PlayCircle,
   Upload,
 } from "lucide-react";
-import type { GSTR2BRecord, PurchaseRecord } from "@/lib/domain/types";
+import type { BankDetails, GSTR2BRecord, PurchaseRecord } from "@/lib/domain/types";
 import { parseGstr2b, type ParseIssue } from "@/lib/parse/gstr2b";
 import { auditGstins, parseRegisterWorkbook } from "@/lib/parse/register";
 import { DEFAULT_COMPANY, type CompanyProfile } from "@/lib/store/session";
 import { Button, Card, cx } from "./primitives";
+import { TallyConnect } from "./TallyConnect";
 
 interface LoadedData {
   purchases: PurchaseRecord[];
@@ -38,6 +40,7 @@ interface LoadedData {
   period: string;
   company: CompanyProfile;
   sources: { register?: string; portal?: string };
+  bankDirectory?: Record<string, BankDetails>;
 }
 
 export function Onboarding({
@@ -49,6 +52,8 @@ export function Onboarding({
   const [register, setRegister] = useState<{ name: string; records: PurchaseRecord[] } | null>(null);
   const [portal, setPortal] = useState<{ name: string; records: GSTR2BRecord[]; period?: string } | null>(null);
   const [issues, setIssues] = useState<ParseIssue[]>([]);
+  const [registerMode, setRegisterMode] = useState<"upload" | "tally">("upload");
+  const [bankDirectory, setBankDirectory] = useState<Record<string, BankDetails>>({});
 
   const registerInput = useRef<HTMLInputElement>(null);
   const portalInput = useRef<HTMLInputElement>(null);
@@ -72,6 +77,15 @@ export function Onboarding({
       { isSample: true },
     );
   }, [onLoad]);
+
+  const handleTallyPulled = useCallback(
+    (records: PurchaseRecord[], bank: Record<string, BankDetails>, sourceLabel: string) => {
+      setRegister({ name: sourceLabel, records });
+      setBankDirectory(bank);
+      setIssues((prev) => prev.filter((i) => !i.where.startsWith("register")));
+    },
+    [],
+  );
 
   const onRegisterFile = useCallback(async (file: File) => {
     setBusy(`Reading ${file.name}…`);
@@ -126,8 +140,9 @@ export function Onboarding({
       period,
       company: DEFAULT_COMPANY,
       sources: { register: register.name, portal: portal.name },
+      bankDirectory: Object.keys(bankDirectory).length > 0 ? bankDirectory : undefined,
     });
-  }, [register, portal, onLoad]);
+  }, [register, portal, bankDirectory, onLoad]);
 
   const errors = issues.filter((i) => i.severity === "ERROR");
   const warnings = issues.filter((i) => i.severity === "WARNING");
@@ -186,16 +201,50 @@ export function Onboarding({
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <DropCard
-            icon={FileSpreadsheet}
-            title="Purchase register"
-            hint="Excel or CSV, exported from Tally, Busy, Zoho or SAP. Columns are detected automatically."
-            accept=".xlsx,.xls,.csv"
-            loaded={register ? `${register.name} — ${register.records.length} lines` : null}
-            inputRef={registerInput}
-            onFile={onRegisterFile}
-            disabled={busy !== null}
-          />
+          <div>
+            <div className="mb-2 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setRegisterMode("upload")}
+                className={cx(
+                  "cursor-pointer rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150",
+                  registerMode === "upload"
+                    ? "border-[var(--color-navy)] bg-[var(--color-navy)] text-white"
+                    : "border-[var(--color-line-strong)] bg-[var(--color-surface)] text-[var(--color-ink-muted)]",
+                )}
+              >
+                Upload a file
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegisterMode("tally")}
+                className={cx(
+                  "inline-flex cursor-pointer items-center gap-1 rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150",
+                  registerMode === "tally"
+                    ? "border-[var(--color-navy)] bg-[var(--color-navy)] text-white"
+                    : "border-[var(--color-line-strong)] bg-[var(--color-surface)] text-[var(--color-ink-muted)]",
+                )}
+              >
+                <Plug size={11} strokeWidth={2.5} aria-hidden />
+                Connect to Tally
+              </button>
+            </div>
+
+            {registerMode === "upload" ? (
+              <DropCard
+                icon={FileSpreadsheet}
+                title="Purchase register"
+                hint="Excel or CSV, exported from Tally, Busy, Zoho or SAP. Columns are detected automatically."
+                accept=".xlsx,.xls,.csv"
+                loaded={register ? `${register.name} — ${register.records.length} lines` : null}
+                inputRef={registerInput}
+                onFile={onRegisterFile}
+                disabled={busy !== null}
+              />
+            ) : (
+              <TallyConnect onPulled={handleTallyPulled} disabled={busy !== null} />
+            )}
+          </div>
           <DropCard
             icon={FileJson}
             title="GSTR-2B"

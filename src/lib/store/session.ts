@@ -21,7 +21,7 @@
  * dropping a save.
  */
 
-import type { GSTR2BRecord, PurchaseRecord } from "../domain/types";
+import type { BankDetails, GSTR2BRecord, PurchaseRecord } from "../domain/types";
 
 const KEY = "itcguard.session.v1";
 const SCHEMA_VERSION = 1;
@@ -58,6 +58,12 @@ export interface StoredSession {
    * was after the original upload/demo choice has scrolled out of memory.
    */
   isSample: boolean;
+  /**
+   * Beneficiary bank details recovered from a Tally ledger pull, by GSTIN.
+   * Absent when the register was a plain file upload — the payment file
+   * still works, it just asks for bank details on every row.
+   */
+  bankDirectory?: Record<string, BankDetails>;
 }
 
 export const DEFAULT_COMPANY: CompanyProfile = {

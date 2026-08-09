@@ -64,16 +64,39 @@ export function toCsv(rows: Record<string, unknown>[]): string {
 }
 
 /**
- * Quote a field if it needs it, doubling any embedded quote.
+ * Characters that make Excel, LibreOffice and Google Sheets treat a cell as a
+ * formula rather than text. Tab and CR are included because both are stripped
+ * during paste, re-exposing whatever follows them.
+ */
+const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+
+/**
+ * Quote a field if it needs it, doubling any embedded quote, and neutralise
+ * spreadsheet formula injection.
  *
- * Note we deliberately do not neutralise leading `=`/`+`/`@` (spreadsheet
- * formula injection). Mutating a value would break the CA's tie-back to the
- * source register, and these files are generated from the user's own uploads
- * rather than third-party input.
+ * An earlier revision of this file deliberately skipped the formula guard,
+ * reasoning that "these files are generated from the user's own uploads rather
+ * than third-party input." That reasoning was wrong, and the distinction it
+ * missed is the whole attack: the user uploaded the file, but they did not
+ * author its contents. Vendor trade names inside a purchase register are
+ * third-party controlled. A supplier who registers as
+ *
+ *     =cmd|'/c powershell -enc <payload>'!A1
+ *
+ * gets that string into their customer's register, into this CSV, and into
+ * whatever Excel opens it — which is, by design, the Chartered Accountant's
+ * machine, the one with the client's whole audit trail on it. The same applies
+ * to the payment file, which is opened by a person with banking authority.
+ *
+ * The fix prefixes a single apostrophe, which Excel consumes as an explicit
+ * "treat as text" marker and does not display. The original tie-back concern
+ * still holds and is why we do not strip or rewrite the value: the characters
+ * survive intact, they are simply denied execution.
  */
 function escapeField(value: string): string {
-  if (!NEEDS_QUOTING.test(value)) return value;
-  return `"${value.replace(/"/g, '""')}"`;
+  const safe = FORMULA_TRIGGER.test(value) ? `'${value}` : value;
+  if (!NEEDS_QUOTING.test(safe)) return safe;
+  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 function stringify(value: unknown): string {
