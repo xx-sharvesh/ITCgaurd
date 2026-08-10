@@ -52,7 +52,7 @@ once. This is the emergency lever.
   is wrong, and failures return an identical message, so the endpoint cannot
   be used to enumerate valid usernames.
 - **Stateless HMAC-SHA256 signed sessions**, 8-hour expiry, built on Web
-  Crypto so the same code runs in both the Edge middleware and Node routes.
+  Crypto so the same code runs in both the Edge proxy and Node routes.
 - **`httpOnly` session cookie** — unreadable from JavaScript, so an XSS bug
   cannot escalate into a stolen session. *Verified by test.*
 - **`sameSite=lax`**, `secure` in production, `path=/`.
@@ -60,9 +60,15 @@ once. This is the emergency lever.
   refused, not merely ignored.
 
 ### Access control
-- **One enforcement point** (`src/middleware.ts`), fail-closed: any route not
-  explicitly listed as public requires a session. A new screen is therefore
-  protected by default rather than by remembering to protect it.
+- **Fail-closed route protection** in `src/proxy.ts` (Next 16 renamed the
+  `middleware` convention to `proxy`): any route not explicitly listed as
+  public requires a session, so a new screen is protected by default rather
+  than by remembering to protect it.
+- **Defence in depth on the sensitive route.** Next's own guidance is that a
+  proxy check is *optimistic*, so the Tally endpoint — which opens outbound
+  connections on the caller's local network — re-verifies the session itself
+  via `requireSession`. A future change to the proxy matcher cannot silently
+  make that endpoint anonymous.
 - Public paths are exactly: `/login`, `/demo`, and the two auth endpoints.
   `/demo` renders only generated fixture data.
 - API callers get `401 JSON`; browsers get a redirect. *Both verified.*

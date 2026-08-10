@@ -11,8 +11,8 @@
  * the server's secret. Anything genuinely sensitive stays out of it.
  *
  * RUNTIME NOTE: built on Web Crypto (`crypto.subtle`), not `node:crypto`,
- * because `middleware.ts` is the enforcement point for auth and Next runs
- * middleware on the Edge runtime, where Node's crypto module does not exist.
+ * because `proxy.ts` is the first enforcement point for auth and Next runs
+ * the proxy on the Edge runtime, where Node's crypto module does not exist.
  * Web Crypto is present in both Edge and Node 18+, so one implementation
  * serves both. This is why every function here is async — subtle.sign is
  * promise-based and there is no synchronous equivalent.

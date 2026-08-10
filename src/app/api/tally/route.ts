@@ -17,6 +17,7 @@ import { TallyError, TALLY_ERROR_STATUS, isTallyError } from "@/lib/tally/errors
 import { DEFAULT_TALLY_URL } from "@/lib/tally/requests";
 import { fetchCompanies, fetchPurchaseRegister, probeTally } from "@/lib/tally/client";
 import { TALLY_RULE, checkRateLimit, clientKey } from "@/lib/auth/rate-limit";
+import { requireSession } from "@/lib/auth/guard";
 
 /** Talks to a machine-local service; there is nothing here worth caching. */
 export const dynamic = "force-dynamic";
@@ -58,6 +59,12 @@ const ACTIONS = new Set(["probe", "companies", "purchases"]);
 export async function POST(request: Request) {
   const rejected = crossOriginRejected(request);
   if (rejected) return rejected;
+
+  // Re-check the session here, not only in the proxy. This endpoint reaches
+  // out onto the caller's local network, so it should refuse anonymous
+  // callers on its own rather than trusting a check made in another file.
+  const guard = await requireSession();
+  if (!guard.ok) return guard.response;
 
   const limit = checkRateLimit(clientKey(request, "tally"), TALLY_RULE);
   if (!limit.allowed) {

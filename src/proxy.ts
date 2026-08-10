@@ -1,13 +1,20 @@
 /**
  * Route protection.
  *
- * Runs before every matched request. This is the enforcement point — the
- * pages themselves do not check auth, so there is exactly one place to audit
- * and no way to ship a new screen that quietly forgets to.
+ * Next 16 renamed the `middleware` convention to `proxy`; the behaviour is
+ * unchanged. The file must sit beside `app/`, and the function may be either
+ * a default export or a named `proxy` export.
  *
- * Deliberately fail-closed: anything not explicitly listed as public requires
- * a valid session. Adding a route therefore protects it by default, which is
- * the correct direction for the mistake to fall.
+ * Runs before every matched request, so this is the first line of defence and
+ * the one place to audit for "is this screen protected". Deliberately
+ * fail-closed: anything not explicitly listed as public requires a valid
+ * session, so adding a route protects it by default.
+ *
+ * Deliberately NOT the only line of defence. Next's own guidance is that a
+ * proxy check is *optimistic* — it reads the cookie and nothing else, because
+ * it runs on every request including prefetches and cannot afford a database
+ * round trip. Anything genuinely sensitive re-checks the session itself; see
+ * `requireSession` in `src/lib/auth/guard.ts` and its use in the Tally route.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -27,7 +34,7 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isPublic(pathname)) {
@@ -62,8 +69,8 @@ export async function middleware(request: NextRequest) {
 export const config = {
   /**
    * Everything except Next's own static output and the favicon. Static assets
-   * carry no ledger data, and running the middleware on each one would add
-   * latency to every page for no security benefit.
+   * carry no ledger data, and running the proxy on each one would add latency
+   * to every page for no security benefit.
    */
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };
